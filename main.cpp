@@ -6,14 +6,14 @@
 
 
 int blurSize = 3;
-int cannyLowThreshold = 55;
-int cannyHighThreshold = 85;
+int cannyLowThreshold = 25;
+int cannyHighThreshold = 150;
 int houghThreshold = 150;
 int houghMinLineLength = 150;
-int houghMaxLineGap = 1200;
+int houghMaxLineGap = 150;
 
 
-const int DEBUG_LEVEL = 3; // 1 - text debug 2 - debug with images; 3 - debug with sliders
+const int DEBUG_LEVEL = 4; // 1 - text debug; 2 - debug with result images; 3 - debug with filtered images; 4 - debug with sliders
 
 /*
 void splitBook(const cv::Mat& inputImage, cv::Mat& leftPage, cv::Mat& rightPage) {
@@ -140,13 +140,17 @@ std::vector<cv::Point> findPageCorners(const cv::Mat& image) {
         std::vector<std::vector<cv::Point>> contoursToDraw = { largestContour };
         cv::drawContours(debugClosedImage, contoursToDraw, -1, cv::Scalar(0, 255, 0), 2);
 
-        cv::resize(binarized, binarized, cv::Size(), 0.1, 0.1);
-        cv::resize(inverted, inverted, cv::Size(), 0.1, 0.1);
-        cv::resize(closed, closed, cv::Size(), 0.1, 0.1);
+        if (DEBUG_LEVEL >= 3) {
+            cv::resize(binarized, binarized, cv::Size(), 0.1, 0.1);
+            cv::resize(inverted, inverted, cv::Size(), 0.1, 0.1);
+            cv::resize(closed, closed, cv::Size(), 0.1, 0.1);
+
+            cv::imshow("Binarized Image", binarized);
+            cv::imshow("Inverted Image", inverted);
+            cv::imshow("Closed Image", closed);
+        }
+
         cv::resize(debugClosedImage, debugClosedImage, cv::Size(), 0.1, 0.1);
-        cv::imshow("Binarized Image", binarized);
-        cv::imshow("Inverted Image", inverted);
-        cv::imshow("Closed Image", closed);
         cv::imshow("Closed Image with Contours", debugClosedImage);
         cv::waitKey(0);
     }
@@ -156,19 +160,27 @@ std::vector<cv::Point> findPageCorners(const cv::Mat& image) {
 
 
 cv::Vec4i findCenterBookLine(const cv::Mat &inputMat) {
-    cv::Mat processedMat, debugMat, processedMatDebug;
+    cv::Mat processedMat, debugMat, processedMatDebug, cannyOutput, blurred;
     inputMat.copyTo(debugMat);
 
-    cv::GaussianBlur(processedMat, processedMat, cv::Size(blurSize*2 + 1, blurSize*2 + 1), 2, 2);
-    cv::Canny(processedMat, processedMat, cannyLowThreshold, cannyHighThreshold, 3);
 
+    cv::GaussianBlur(inputMat, blurred, cv::Size(3, 3), 1, 1);
+    cv::Mat binarized;
+    cv::adaptiveThreshold(blurred, binarized, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C, cv::THRESH_BINARY_INV, 11, 2);
 
+    // Морфологические операции
+    //cv::dilate(binarized, dilated, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5)));
+    //cv::morphologyEx(dilated, closed, cv::MORPH_CLOSE, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(15, 15)));
 
+    cv::Canny(binarized, processedMat, cannyLowThreshold, cannyHighThreshold, 3);
+    //processedMat = cannyOutput;
 
     if (DEBUG_LEVEL >= 2) {
-        cv::resize(processedMat, processedMatDebug, cv::Size(), 0.1, 0.1);
-        cv::imshow("Canny", processedMatDebug);
-        cv::waitKey(0);
+        if (DEBUG_LEVEL >= 3) {
+            cv::resize(processedMat, processedMatDebug, cv::Size(), 0.1, 0.1);
+            cv::imshow("Canny", processedMatDebug);
+            cv::waitKey(0);
+        }
     }
 
     std::vector<cv::Vec4i> lines;
@@ -176,7 +188,7 @@ cv::Vec4i findCenterBookLine(const cv::Mat &inputMat) {
     //cv::HoughLinesP(processedMat, lines, 1, CV_PI/180, 150, 150, 1200);
 
     if (lines.empty()) {
-        if (DEBUG_LEVEL >= 2) {
+        if (DEBUG_LEVEL >= 1) {
             std::cout << "No lines detected!" << std::endl;
         }
         return cv::Vec4i();  // Return an empty line if no lines are detected
@@ -219,7 +231,7 @@ cv::Vec4i findCenterBookLine(const cv::Mat &inputMat) {
     }
 
     if (DEBUG_LEVEL >= 2) {
-        cv::line(debugMat, cv::Point(bestLine[0], bestLine[1]), cv::Point(bestLine[2], bestLine[3]), cv::Scalar(0, 0, 255), 4);
+        cv::line(debugMat, cv::Point(bestLine[0], bestLine[1]), cv::Point(bestLine[2], bestLine[3]), cv::Scalar(0, 0, 255), 10);
         cv::resize(debugMat, debugMat, cv::Size(), 0.1, 0.1);
         cv::imshow("Detected Center Line", debugMat);
         cv::waitKey(0);
@@ -303,7 +315,7 @@ void onTrackbarChanged(int, void* userData) {
 
 
 int main() {
-    QString path = "C:/Users/danoc/Documents/geometry/3.jpg";
+    QString path = "C:/Users/danoc/Documents/geometry/2.jpg";
 
     cv::Mat image = cv::imread(path.toLocal8Bit().constData());
     cv::Mat inputMat = image.clone();
@@ -312,7 +324,7 @@ int main() {
 
 
     // Создание окна и трекбаров
-       if (DEBUG_LEVEL >= 3) {
+       if (DEBUG_LEVEL >= 4) {
            //
 
 
@@ -324,17 +336,20 @@ int main() {
            cv::createTrackbar("Hough Threshold", "Controls", &houghThreshold, 300, onTrackbarChanged, &inputMat);
            cv::createTrackbar("Hough Min Line Length", "Controls", &houghMinLineLength, 1500, onTrackbarChanged, &inputMat);
            cv::createTrackbar("Hough Max Line Gap", "Controls", &houghMaxLineGap, 1500, onTrackbarChanged, &inputMat);
+
+
+            // Запуск главного цикла для работы трек баров
+            while (true) {
+               findCenterBookLine(image); // Обновление изображения
+
+               char key = (char) cv::waitKey(10);
+               if (key == 27)  // Если нажата клавиша 'Esc', выходите из цикла
+                   break;
+            }
+        } else {
+           alignBookVertically(image);
+
        }
-
-       // Запуск главного цикла для работы трек баров
-       while (true) {
-           findCenterBookLine(image); // Обновление изображения
-
-           char key = (char) cv::waitKey(10);
-           if (key == 27)  // Если нажата клавиша 'Esc', выходите из цикла
-               break;
-       }
-
 
     //cv::resize(image, image, cv::Size(), 0.1, 0.1);
     //alignBookVertically(image);
