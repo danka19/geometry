@@ -6,16 +6,16 @@
 
 
 int blurSize = 3;
-int cannyLowThreshold = 25;
-int cannyHighThreshold = 150;
-int houghThreshold = 150;
-int houghMinLineLength = 150;
-int houghMaxLineGap = 150;
+int cannyLowThreshold = 35;
+int cannyHighThreshold = 160;
+int houghThreshold = 100;
+int houghMinLineLength = 300;
+int houghMaxLineGap = 10;
 
 
-const int DEBUG_LEVEL = 4; // 1 - text debug; 2 - debug with result images; 3 - debug with filtered images; 4 - debug with sliders
+const int DEBUG_LEVEL = 2; // 1 - text debug; 2 - debug with result images; 3 - debug with filtered images; 4 - debug with sliders
 
-/*
+
 void splitBook(const cv::Mat& inputImage, cv::Mat& leftPage, cv::Mat& rightPage) {
     cv::Mat gray, binarized, morphed, debugImage, blurred;
 
@@ -64,7 +64,7 @@ void splitBook(const cv::Mat& inputImage, cv::Mat& leftPage, cv::Mat& rightPage)
         cv::waitKey(0);
     }
 }
-*/
+
 
 
 std::vector<cv::Point> findPageCorners(const cv::Mat& image) {
@@ -160,20 +160,24 @@ std::vector<cv::Point> findPageCorners(const cv::Mat& image) {
 
 
 cv::Vec4i findCenterBookLine(const cv::Mat &inputMat) {
-    cv::Mat processedMat, debugMat, processedMatDebug, cannyOutput, blurred;
+    cv::Mat processedMat, debugMat, processedMatDebug, cannyOutput, blurred, binarized, gray, dilated, canny;
     inputMat.copyTo(debugMat);
 
+    cv::cvtColor(inputMat, gray, cv::COLOR_BGR2GRAY);
+    cv::GaussianBlur(gray, blurred, cv::Size(3, 3), 1, 1);
+    //cv::adaptiveThreshold(blurred, processedMat, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C, cv::THRESH_BINARY_INV, 11, 2);
 
-    cv::GaussianBlur(inputMat, blurred, cv::Size(3, 3), 1, 1);
-    cv::Mat binarized;
-    cv::adaptiveThreshold(blurred, binarized, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C, cv::THRESH_BINARY_INV, 11, 2);
+    cv::Canny(blurred, canny, cannyLowThreshold, cannyHighThreshold, 3);
+    //processedMat = cannyOutput;
 
     // Морфологические операции
-    //cv::dilate(binarized, dilated, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5)));
-    //cv::morphologyEx(dilated, closed, cv::MORPH_CLOSE, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(15, 15)));
+    cv::dilate(canny, dilated, cv::getStructuringElement(cv::MORPH_CROSS, cv::Size(3, 3)));
+    cv::morphologyEx(dilated, processedMat, cv::MORPH_CLOSE, cv::getStructuringElement(cv::MORPH_CROSS, cv::Size(3, 7)));
 
-    cv::Canny(binarized, processedMat, cannyLowThreshold, cannyHighThreshold, 3);
-    //processedMat = cannyOutput;
+    cv::Mat sobel;
+    cv::Sobel(processedMat, sobel, CV_8U, 1, 0, 15);
+    cv::threshold(sobel, processedMat, 0, 255, cv::THRESH_BINARY + cv::THRESH_OTSU);
+
 
     if (DEBUG_LEVEL >= 2) {
         if (DEBUG_LEVEL >= 3) {
@@ -315,41 +319,47 @@ void onTrackbarChanged(int, void* userData) {
 
 
 int main() {
-    QString path = "C:/Users/danoc/Documents/geometry/2.jpg";
 
-    cv::Mat image = cv::imread(path.toLocal8Bit().constData());
-    cv::Mat inputMat = image.clone();
-    cv::Mat leftPage, rightPage;
-    //splitBook(image, leftPage, rightPage);
+    QString pathToFolder = "C:/Users/danoc/Documents/geometry/";
+    for (int i = 1; i < 13; i++) {
+        QString path = pathToFolder +  QString::number(i) + ".jpg";
 
-
-    // Создание окна и трекбаров
-       if (DEBUG_LEVEL >= 4) {
-           //
+        cv::Mat image = cv::imread(path.toLocal8Bit().constData());
+        cv::Mat inputMat = image.clone();
+        cv::Mat leftPage, rightPage;
+        //splitBook(image, leftPage, rightPage);
 
 
-           cv::namedWindow("Controls", cv::WINDOW_AUTOSIZE);
-
-           cv::createTrackbar("Blur Size", "Controls", &blurSize, 25, onTrackbarChanged, &inputMat);
-           cv::createTrackbar("Canny Low", "Controls", &cannyLowThreshold, 255, onTrackbarChanged, &inputMat);
-           cv::createTrackbar("Canny High", "Controls", &cannyHighThreshold, 255, onTrackbarChanged, &inputMat);
-           cv::createTrackbar("Hough Threshold", "Controls", &houghThreshold, 300, onTrackbarChanged, &inputMat);
-           cv::createTrackbar("Hough Min Line Length", "Controls", &houghMinLineLength, 1500, onTrackbarChanged, &inputMat);
-           cv::createTrackbar("Hough Max Line Gap", "Controls", &houghMaxLineGap, 1500, onTrackbarChanged, &inputMat);
+        // Создание окна и трекбаров
+           if (DEBUG_LEVEL >= 4) {
+               //
 
 
-            // Запуск главного цикла для работы трек баров
-            while (true) {
-               findCenterBookLine(image); // Обновление изображения
+               cv::namedWindow("Controls", cv::WINDOW_AUTOSIZE);
 
-               char key = (char) cv::waitKey(10);
-               if (key == 27)  // Если нажата клавиша 'Esc', выходите из цикла
-                   break;
-            }
-        } else {
-           alignBookVertically(image);
+               cv::createTrackbar("Blur Size", "Controls", &blurSize, 25, onTrackbarChanged, &inputMat);
+               cv::createTrackbar("Canny Low", "Controls", &cannyLowThreshold, 255, onTrackbarChanged, &inputMat);
+               cv::createTrackbar("Canny High", "Controls", &cannyHighThreshold, 255, onTrackbarChanged, &inputMat);
+               cv::createTrackbar("Hough Threshold", "Controls", &houghThreshold, 300, onTrackbarChanged, &inputMat);
+               cv::createTrackbar("Hough Min Line Length", "Controls", &houghMinLineLength, 1500, onTrackbarChanged, &inputMat);
+               cv::createTrackbar("Hough Max Line Gap", "Controls", &houghMaxLineGap, 1500, onTrackbarChanged, &inputMat);
 
-       }
+
+                // Запуск главного цикла для работы трек баров
+                while (true) {
+                   findCenterBookLine(image); // Обновление изображения
+
+                   char key = (char) cv::waitKey(10);
+                   if (key == 27)  // Если нажата клавиша 'Esc', выходите из цикла
+                       break;
+                }
+            } else {
+               alignBookVertically(image);
+
+           }
+    }
+
+
 
     //cv::resize(image, image, cv::Size(), 0.1, 0.1);
     //alignBookVertically(image);
