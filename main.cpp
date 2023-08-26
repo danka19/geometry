@@ -16,55 +16,18 @@ int houghMaxLineGap = 10;
 const int DEBUG_LEVEL = 2; // 1 - text debug; 2 - debug with result images; 3 - debug with filtered images; 4 - debug with sliders
 
 
-void splitBook(const cv::Mat& inputImage, cv::Mat& leftPage, cv::Mat& rightPage) {
-    cv::Mat gray, binarized, morphed, debugImage, blurred;
+void splitPages(const cv::Mat &bookImage, cv::Vec4i verticalLine, cv::Mat &leftPage, cv::Mat &rightPage) {
+    int center_x = (verticalLine[0] + verticalLine[2]) / 2; // средняя координата X линии
 
-    cv::Mat image ;
-    cv::resize(inputImage.clone(), image, cv::Size(),  0.2, 0.2);
-    debugImage = image.clone();
+    leftPage = bookImage(cv::Rect(0, 0, center_x, bookImage.rows)).clone();
+    rightPage = bookImage(cv::Rect(center_x, 0, bookImage.cols - center_x, bookImage.rows)).clone();
 
-    // 1. Бинаризация
-    cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
-
-    cv::medianBlur(gray, gray, 5);
-
-    cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 0);
-    cv::adaptiveThreshold(blurred, binarized, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C, cv::THRESH_BINARY_INV, 25, 4);
-    if (DEBUG_LEVEL >= 2) {
-        cv::imshow("Binarized Image", binarized);
-    }
-
-    // 3. Проекция
-    cv::Mat projection;
-    cv::reduce(binarized, projection, 0, cv::REDUCE_SUM, CV_32S);
-
-    // 4. Поиск минимального значения в центральной области изображения
-    int center = image.cols / 2;
-    int window = image.cols * 0.2; // Проверяем 20% изображения вокруг центра
-
-    double minVal;
-    cv::Point minLoc;
-    cv::Mat centerRegion = projection(cv::Rect(center - window / 2, 0, window, 1));
-    cv::minMaxLoc(centerRegion, &minVal, nullptr, &minLoc);
-
-    int splitPosition = center - window / 2 + minLoc.x;
-
-    if (DEBUG_LEVEL >= 2) {
-        cv::line(debugImage, cv::Point(splitPosition, 0), cv::Point(splitPosition, image.rows), cv::Scalar(0, 0, 255), 2);
-        cv::imshow("Debug Image with Split Line", debugImage);
-    }
-
-    // 5. Разделение
-    leftPage = image(cv::Rect(0, 0, splitPosition, image.rows));
-    rightPage = image(cv::Rect(splitPosition, 0, image.cols - splitPosition, image.rows));
-
-    if (DEBUG_LEVEL >= 2) {
+    if (DEBUG_LEVEL >= 3) {
         cv::imshow("Left Page", leftPage);
         cv::imshow("Right Page", rightPage);
         cv::waitKey(0);
     }
 }
-
 
 
 std::vector<cv::Point> findPageCorners(const cv::Mat& image) {
@@ -245,9 +208,7 @@ cv::Vec4i findCenterBookLine(const cv::Mat &inputMat) {
 }
 
 
-cv::Mat alignBookVertically(const cv::Mat &inputMat) {
-    // Find the center line of the book.
-    cv::Vec4i centerLine = findCenterBookLine(inputMat);
+cv::Vec4i alignBookVertically(cv::Vec4i &centerLine, cv::Mat &bookImage) {
 
     // Compute the angle of this line with the vertical axis (y-axis).
     double angle = std::atan2(static_cast<double>(centerLine[3] - centerLine[1]),
@@ -264,11 +225,14 @@ cv::Mat alignBookVertically(const cv::Mat &inputMat) {
     cv::Mat rotMat = cv::getRotationMatrix2D(center, angle, 1.0);
 
     // Apply the rotation to the image.
-    cv::Mat alignedMat;
-    cv::warpAffine(inputMat, alignedMat, rotMat, inputMat.size(), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar());
+    cv::Mat alignedBook;
+    cv::warpAffine(bookImage, alignedBook, rotMat, bookImage.size(), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar());
+    // Определение центральной линии на повернутом изображении
+    cv::Vec4i alignedCenterLine = findCenterBookLine(alignedBook);
 
-    return alignedMat;
+    return alignedCenterLine; // Возвращаем координаты линии
 }
+
 
 
 void drawContoursOnImage(const cv::Mat& inputImage, const std::vector<cv::Point>& contours, cv::Mat& outputImage) {
@@ -287,31 +251,8 @@ void drawContoursOnImage(const cv::Mat& inputImage, const std::vector<cv::Point>
     }
 }
 
-/*
-void imgAnalyze(cv::Mat &page){
 
-
-    if (!page.empty()) {
-
-        //cv::resize(page, page, cv::Size(), 0.2, 0.2);
-
-        std::vector<cv::Point> corners = findPageCorners(page);
-
-        cv::Mat outputImage;
-        drawContoursOnImage(page, corners, outputImage);
-
-        if (DEBUG_LEVEL >= 2) {
-            cv::resize(outputImage, outputImage, cv::Size(), 0.1, 0.1);
-            cv::imshow("Detected Page Contours", outputImage);
-            cv::waitKey(0);
-        }
-    } else {
-        std::cerr << "Error loading image!" << std::endl;
-    }
-}*/
-
-
-// Создание функции обратного вызова
+// Создание функции обратного вызова (для дебага)
 void onTrackbarChanged(int, void* userData) {
     cv::Mat* matPtr = static_cast<cv::Mat*>(userData);
     findCenterBookLine(*matPtr);
@@ -354,7 +295,9 @@ int main() {
                        break;
                 }
             } else {
-               alignBookVertically(image);
+               cv::Vec4i centerBookLine = findCenterBookLine(image);
+               cv::Vec4i alignedCenterBookLine = alignBookVertically(centerBookLine, image);
+               splitPages(image, alignedCenterBookLine, leftPage, rightPage);
 
            }
     }
